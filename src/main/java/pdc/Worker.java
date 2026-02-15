@@ -79,10 +79,7 @@ public class Worker {
                         if ("RPC_REQUEST".equals(type)) {
                             handleRpcRequest(msg);
                         } else if ("HEARTBEAT".equals(type)) {
-                            Message ack = new Message();
-                            ack.messageType = "HEARTBEAT_ACK";
-                            ack.studentId = studentId;
-                            out.println(ack.toJson());
+                            sendHeartbeatAck();
                         }
                     } catch (Exception e) {
                         System.err.println("[Worker " + workerId + "] Process error: " + e.getMessage());
@@ -97,6 +94,19 @@ public class Worker {
         listener.start();
     }
 
+    private void sendHeartbeatAck() {
+        try {
+            Message ack = new Message();
+            ack.messageType = "HEARTBEAT_ACK";
+            ack.studentId = studentId;
+            ack.payloadStr = "pong";
+            out.println(ack.toJson());
+            System.out.println("[Worker " + workerId + "] HEARTBEAT_ACK sent");
+        } catch (Exception e) {
+            System.err.println("[Worker " + workerId + "] Heartbeat error: " + e.getMessage());
+        }
+    }
+
     private void handleRpcRequest(Message msg) {
         try {
             String payload = msg.payloadStr != null ? msg.payloadStr : "";
@@ -107,6 +117,7 @@ public class Worker {
             response.studentId = studentId;
             response.payloadStr = payload + ";processed";
             out.println(response.toJson());
+            System.out.println("[Worker " + workerId + "] Response sent");
         } catch (Exception e) {
             System.err.println("[Worker " + workerId + "] RPC error: " + e.getMessage());
         }
