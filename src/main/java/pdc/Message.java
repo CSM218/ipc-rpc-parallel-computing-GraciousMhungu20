@@ -19,9 +19,18 @@ public class Message {
         this.version = 1;
         this.timestamp = System.currentTimeMillis();
     }
+    
+    // Ensure alias fields are in sync
+    public void syncAliases() {
+        if (this.type != null && this.messageType == null) this.messageType = this.type;
+        if (this.messageType != null && this.type == null) this.type = this.messageType;
+        if (this.sender != null && this.studentId == null) this.studentId = this.sender;
+        if (this.studentId != null && this.sender == null) this.sender = this.studentId;
+    }
 
     // JSON serialization
     public String toJson() {
+        syncAliases();
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("magic", magic != null ? magic : "CSM218");
         map.put("version", version > 0 ? version : 1);
@@ -54,6 +63,7 @@ public class Message {
             msg.payload = msg.payloadStr.getBytes();
         }
         
+        msg.syncAliases();
         return msg;
     }
 
@@ -159,7 +169,7 @@ public class Message {
         return sb.toString();
     }
     
-    // Helper method for JSON deserialization - improved
+    // Helper method for JSON deserialization - ultra-simple and robust
     private static Map<String, Object> jsonToMap(String json) {
         if (json == null || json.trim().isEmpty()) return new HashMap<>();
         
@@ -171,113 +181,104 @@ public class Message {
                 return map;
             }
             
-            // Remove outer braces
-            String content = json.substring(1, json.length() - 1);
+            // Extract each field using simple substring parsing
+            // Expected format: {"magic":"CSM218","version":1,"messageType":"...","studentId":"...","timestamp":12345,"payload":"..."}
             
-            // Manual JSON parsing
-            StringBuilder key = null;
-            StringBuilder value = null;
-            boolean inQuote = false;
-            boolean inValue = false;
-            boolean isString = false;
+            // Parse magic
+            int idx = json.indexOf("\"magic\":");
+            if (idx >= 0) {
+                idx += 8; // length of "\"magic\":"
+                int endIdx = json.indexOf("\"", idx + 1); // Find closing quote
+                if (endIdx > idx) {
+                    String value = json.substring(idx + 1, endIdx);
+                    map.put("magic", unescape(value));
+                }
+            }
             
-            int i = 0;
-            while (i < content.length()) {
-                char c = content.charAt(i);
-                char nextChar = i + 1 < content.length() ? content.charAt(i + 1) : '\0';
-                
-                // Handle strings
-                if (c == '"') {
-                    if (i > 0 && content.charAt(i - 1) != '\\') {
-                        inQuote = !inQuote;
-                        if (!inQuote && !inValue) {
-                            key = new StringBuilder();
-                        } else if (!inQuote && inValue) {
-                            isString = true;
-                        }
-                    }
-                    if (inQuote) {
-                        if (key != null && key.length() > 0) {
-                            key.append(c);
-                        }
-                        if (value != null) {
-                            value.append(c);
-                        }
-                    }
-                    i++;
-                    continue;
+            // Parse version
+            idx = json.indexOf("\"version\":");
+            if (idx >= 0) {
+                idx += 10;
+                int commaIdx = json.indexOf(",", idx);
+                int braceIdx = json.indexOf("}", idx);
+                int endIdx = commaIdx >= 0 && commaIdx < braceIdx ? commaIdx : braceIdx;
+                String valueStr = json.substring(idx, endIdx).trim();
+                try {
+                    map.put("version", Long.parseLong(valueStr));
+                } catch (NumberFormatException e) {
+                    map.put("version", 1);
                 }
-                
-                if (inQuote) {
-                    if (key != null && key.length() > 0) {
-                        key.append(c);
-                    } else if (value != null) {
-                        value.append(c);
-                    }
-                    i++;
-                    continue;
+            }
+            
+            // Parse messageType
+            idx = json.indexOf("\"messageType\":");
+            if (idx >= 0) {
+                idx += 15; // length of "\"messageType\":"
+                int endIdx = json.indexOf("\"", idx + 1);
+                if (endIdx > idx) {
+                    String value = json.substring(idx + 1, endIdx);
+                    map.put("messageType", unescape(value));
                 }
-                
-                // Handle colon
-                if (c == ':' && !inValue && key != null) {
-                    inValue = true;
-                    value = new StringBuilder();
-                    i++;
-                    // Skip whitespace
-                    while (i < content.length() && Character.isWhitespace(content.charAt(i))) {
-                        i++;
-                    }
-                    continue;
+            }
+            
+            // Parse studentId
+            idx = json.indexOf("\"studentId\":");
+            if (idx >= 0) {
+                idx += 13; // length of "\"studentId\":"
+                int endIdx = json.indexOf("\"", idx + 1);
+                if (endIdx > idx) {
+                    String value = json.substring(idx + 1, endIdx);
+                    map.put("studentId", unescape(value));
                 }
-                
-                // Handle value
-                if (inValue && c != ',') {
-                    value.append(c);
-                    i++;
-                    continue;
+            }
+            
+            // Parse timestamp
+            idx = json.indexOf("\"timestamp\":");
+            if (idx >= 0) {
+                idx += 12;
+                int commaIdx = json.indexOf(",", idx);
+                int braceIdx = json.indexOf("}", idx);
+                int endIdx = commaIdx >= 0 && commaIdx < braceIdx ? commaIdx : braceIdx;
+                String valueStr = json.substring(idx, endIdx).trim();
+                try {
+                    map.put("timestamp", Long.parseLong(valueStr));
+                } catch (NumberFormatException e) {
+                    map.put("timestamp", System.currentTimeMillis());
                 }
-                
-                // Handle comma
-                if (c == ',' || i == content.length() - 1) {
-                    if (key != null && value != null) {
-                        String keyStr = key.toString().trim().replaceAll("^\"|\"$", "");
-                        String valueStr = value.toString().trim();
-                        
-                        Object parsedValue;
-                        if (valueStr.startsWith("\"") && valueStr.endsWith("\"")) {
-                            parsedValue = unescape(valueStr.substring(1, valueStr.length() - 1));
-                        } else if ("null".equals(valueStr)) {
-                            parsedValue = null;
-                        } else if ("true".equals(valueStr)) {
-                            parsedValue = true;
-                        } else if ("false".equals(valueStr)) {
-                            parsedValue = false;
+            }
+            
+            // Parse payload - this is tricky because it can contain "," and other special chars
+            idx = json.indexOf("\"payload\":");
+            if (idx >= 0) {
+                idx += 11; // length of "\"payload\":"
+                if (idx < json.length() && json.charAt(idx) == '"') {
+                    idx++; // skip opening quote
+                    StringBuilder payload = new StringBuilder();
+                    boolean escaped = false;
+                    while (idx < json.length()) {
+                        char c = json.charAt(idx);
+                        if (escaped) {
+                            if (c == '"') payload.append('"');
+                            else if (c == '\\') payload.append('\\');
+                            else if (c == 'n') payload.append('\n');
+                            else if (c == 'r') payload.append('\r');
+                            else payload.append(c);
+                            escaped = false;
+                        } else if (c == '\\') {
+                            escaped = true;
+                        } else if (c == '"') {
+                            // Found closing quote
+                            map.put("payload", payload.toString());
+                            break;
                         } else {
-                            try {
-                                if (valueStr.contains(".")) {
-                                    parsedValue = Double.parseDouble(valueStr);
-                                } else {
-                                    parsedValue = Long.parseLong(valueStr);
-                                }
-                            } catch (NumberFormatException e) {
-                                parsedValue = valueStr;
-                            }
+                            payload.append(c);
                         }
-                        
-                        map.put(keyStr, parsedValue);
+                        idx++;
                     }
-                    
-                    key = null;
-                    value = null;
-                    inValue = false;
-                    isString = false;
                 }
-                
-                i++;
             }
         } catch (Exception e) {
             System.err.println("[Message] Error parsing JSON: " + e.getMessage());
-            e.printStackTrace();
         }
         
         return map;
