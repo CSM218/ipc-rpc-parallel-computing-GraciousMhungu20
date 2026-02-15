@@ -3,6 +3,7 @@ package pdc;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
+import java.io.IOException;
 
 /**
  * JUnit 5 tests for the Master class.
@@ -13,8 +14,8 @@ class MasterTest {
     private Master master;
 
     @BeforeEach
-    void setUp() {
-        master = new Master();
+    void setUp() throws IOException {
+        master = new Master(0); // Use port 0 for any available port
     }
 
     @Test

@@ -5,8 +5,10 @@ import java.io.*;
 public class Message {
     public String magic;
     public int version;
-    public String type;
+    public String type;              // messageType alias
+    public String messageType;       // CSM218 schema field
     public String sender;
+    public String studentId;         // CSM218 schema field
     public long timestamp;
     public byte[] payload;
 
@@ -15,6 +17,10 @@ public class Message {
     // Convert message to byte array
     public byte[] pack() {
         try {
+            // Sync alias fields
+            if (messageType == null) messageType = type;
+            if (studentId == null) studentId = sender;
+            
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             DataOutputStream out = new DataOutputStream(baos);
 
@@ -50,6 +56,10 @@ public class Message {
             msg.type = in.readUTF();
             msg.sender = in.readUTF();
             msg.timestamp = in.readLong();
+            
+            // Sync alias fields
+            msg.messageType = msg.type;
+            msg.studentId = msg.sender;
 
             int length = in.readInt();
             if (length > 0) {
@@ -62,6 +72,25 @@ public class Message {
             return msg;
         } catch (IOException e) {
             throw new RuntimeException("Unpacking failed", e);
+        }
+    }
+
+    // Validate message protocol
+    public void validate() throws Exception {
+        if (magic == null || !magic.equals("CSM218")) {
+            throw new Exception("Missing or invalid magic field (should be CSM218)");
+        }
+        if (version != 1) {
+            throw new Exception("Invalid version (should be 1)");
+        }
+        if (type == null || type.isEmpty()) {
+            throw new Exception("Missing message type");
+        }
+        if (sender == null || sender.isEmpty()) {
+            throw new Exception("Missing sender");
+        }
+        if (timestamp <= 0) {
+            throw new Exception("Invalid timestamp");
         }
     }
 }
