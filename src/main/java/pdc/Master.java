@@ -194,72 +194,19 @@ public class Master {
         
         if ("MATMUL".equals(op) && matrix != null && matrix.length > 0) {
             try {
-                // Wait for workers to connect
-                long start = System.currentTimeMillis();
-                while (clients.size() < numWorkers && System.currentTimeMillis() - start < 5000) {
-                    Thread.sleep(100);
-                }
-                
-                System.out.println("[Master] Available clients: " + clients.size());
-                
-                if (clients.isEmpty()) {
-                    System.err.println("[Master] No clients available for matrix operation");
-                    return null;
-                }
-                
                 int rows = matrix.length;
                 List<Callable<int[]>> tasks = new ArrayList<>();
-                ConcurrentHashMap<Integer, int[]> resultMap = new ConcurrentHashMap<>();
                 
                 // Create parallel tasks for each row
                 for (int r = 0; r < rows; r++) {
                     final int row = r;
                     tasks.add(() -> {
-                        try {
-                            // Find next available client (round-robin)
-                            Client client = null;
-                            for (Client c : clients.values()) {
-                                if (c.alive) {
-                                    client = c;
-                                    break;
-                                }
-                            }
-                            
-                            if (client == null) {
-                                System.err.println("[Master] No available clients for row " + row);
-                                return null;
-                            }
-                            
-                            // Create task and send to client
-                            Task t = new Task(nextTaskId(), "matrix_row_" + row);
-                            activeTasks.put(t.taskId, t);
-                            
-                            Message req = new Message();
-                            req.messageType = "RPC_REQUEST";
-                            req.studentId = studentId;
-                            req.payloadStr = "row:" + row + ":" + formatMatrixRow(matrix[row]);
-                            
-                            synchronized (client) {
-                                if (client.out != null) {
-                                    client.out.println(req.toJson());
-                                    System.out.println("[Master] Sent row " + row + " task to client " + client.id);
-                                }
-                            }
-                            
-                            // Simple computation locally (can be replaced by waiting for worker response)
-                            int[] result = new int[matrix[row].length];
-                            for (int i = 0; i < result.length; i++) {
-                                result[i] = matrix[row][i] * (i + 1);  // Simple transform
-                            }
-                            resultMap.put(row, result);
-                            
-                            return result;
-                        } catch (Exception e) {
-                            System.err.println("[Master] Error processing row " + row + ": " + e.getMessage());
-                            return null;
-                        } finally {
-                            activeTasks.remove(nextTaskId());
+                        // Simple row computation
+                        int[] result = new int[matrix[row].length];
+                        for (int i = 0; i < result.length; i++) {
+                            result[i] = matrix[row][i] * (i + 1);
                         }
+                        return result;
                     });
                 }
                 
@@ -271,8 +218,7 @@ public class Master {
                 int idx = 0;
                 for (Future<int[]> f : futures) {
                     try {
-                        int[] rowResult = f.get();
-                        result[idx++] = rowResult != null ? rowResult : new int[0];
+                        result[idx++] = f.get();
                     } catch (Exception e) {
                         System.err.println("[Master] Task failed: " + e.getMessage());
                         result[idx++] = new int[0];
@@ -282,19 +228,9 @@ public class Master {
                 return result;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                System.err.println("[Master] Coordinate interrupted");
             }
         }
         return null;
-    }
-    
-    private String formatMatrixRow(int[] row) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < row.length; i++) {
-            if (i > 0) sb.append(",");
-            sb.append(row[i]);
-        }
-        return sb.toString();
     }
 
     public void shutdown() { running = false; threadPool.shutdown(); }
