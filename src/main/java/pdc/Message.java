@@ -159,7 +159,7 @@ public class Message {
         return sb.toString();
     }
     
-    // Helper method for JSON deserialization - improved
+    // Helper method for JSON deserialization - simplified and more robust
     private static Map<String, Object> jsonToMap(String json) {
         if (json == null || json.trim().isEmpty()) return new HashMap<>();
         
@@ -168,119 +168,143 @@ public class Message {
         try {
             json = json.trim();
             if (!json.startsWith("{") || !json.endsWith("}")) {
+                System.err.println("[Message] Invalid JSON format: " + json);
                 return map;
             }
             
-            // Remove outer braces
+            // Remove outer braces and split by comma outside quotes
             String content = json.substring(1, json.length() - 1);
             
-            // Manual JSON parsing
-            StringBuilder key = null;
-            StringBuilder value = null;
-            boolean inQuote = false;
-            boolean inValue = false;
-            boolean isString = false;
+            List<String> pairs = smartSplit(content, ',');
             
-            int i = 0;
-            while (i < content.length()) {
-                char c = content.charAt(i);
-                char nextChar = i + 1 < content.length() ? content.charAt(i + 1) : '\0';
+            for (String pair : pairs) {
+                pair = pair.trim();
+                int colonIdx = findColonOutsideQuotes(pair);
+                if (colonIdx <= 0) continue;
                 
-                // Handle strings
-                if (c == '"') {
-                    if (i > 0 && content.charAt(i - 1) != '\\') {
-                        inQuote = !inQuote;
-                        if (!inQuote && !inValue) {
-                            key = new StringBuilder();
-                        } else if (!inQuote && inValue) {
-                            isString = true;
-                        }
-                    }
-                    if (inQuote) {
-                        if (key != null && key.length() > 0) {
-                            key.append(c);
-                        }
-                        if (value != null) {
-                            value.append(c);
-                        }
-                    }
-                    i++;
-                    continue;
-                }
+                String key = pair.substring(0, colonIdx).trim();
+                String valuePart = pair.substring(colonIdx + 1).trim();
                 
-                if (inQuote) {
-                    if (key != null && key.length() > 0) {
-                        key.append(c);
-                    } else if (value != null) {
-                        value.append(c);
-                    }
-                    i++;
-                    continue;
-                }
+                // Remove quotes from key
+                key = removeQuotes(key);
                 
-                // Handle colon
-                if (c == ':' && !inValue && key != null) {
-                    inValue = true;
-                    value = new StringBuilder();
-                    i++;
-                    // Skip whitespace
-                    while (i < content.length() && Character.isWhitespace(content.charAt(i))) {
-                        i++;
-                    }
-                    continue;
-                }
-                
-                // Handle value
-                if (inValue && c != ',') {
-                    value.append(c);
-                    i++;
-                    continue;
-                }
-                
-                // Handle comma
-                if (c == ',' || i == content.length() - 1) {
-                    if (key != null && value != null) {
-                        String keyStr = key.toString().trim().replaceAll("^\"|\"$", "");
-                        String valueStr = value.toString().trim();
-                        
-                        Object parsedValue;
-                        if (valueStr.startsWith("\"") && valueStr.endsWith("\"")) {
-                            parsedValue = unescape(valueStr.substring(1, valueStr.length() - 1));
-                        } else if ("null".equals(valueStr)) {
-                            parsedValue = null;
-                        } else if ("true".equals(valueStr)) {
-                            parsedValue = true;
-                        } else if ("false".equals(valueStr)) {
-                            parsedValue = false;
-                        } else {
-                            try {
-                                if (valueStr.contains(".")) {
-                                    parsedValue = Double.parseDouble(valueStr);
-                                } else {
-                                    parsedValue = Long.parseLong(valueStr);
-                                }
-                            } catch (NumberFormatException e) {
-                                parsedValue = valueStr;
-                            }
-                        }
-                        
-                        map.put(keyStr, parsedValue);
-                    }
-                    
-                    key = null;
-                    value = null;
-                    inValue = false;
-                    isString = false;
-                }
-                
-                i++;
+                // Parse value
+                Object value = parseJsonValue(valuePart);
+                map.put(key, value);
             }
         } catch (Exception e) {
             System.err.println("[Message] Error parsing JSON: " + e.getMessage());
-            e.printStackTrace();
         }
         
         return map;
+    }
+    
+    private static List<String> smartSplit(String str, char delimiter) {
+        List<String> result = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inQuotes = false;
+        boolean escaped = false;
+        
+        for (int i = 0; i < str.length(); i++) {
+            char c = str.charAt(i);
+            
+            if (escaped) {
+                current.append(c);
+                escaped = false;
+                continue;
+            }
+            
+            if (c == '\\') {
+                current.append(c);
+                escaped = true;
+                continue;
+            }
+            
+            if (c == '"') {
+                inQuotes = !inQuotes;
+                current.append(c);
+                continue;
+            }
+            
+            if (c == delimiter && !inQuotes) {
+                result.add(current.toString());
+                current = new StringBuilder();
+                continue;
+            }
+            
+            current.append(c);
+        }
+        
+        if (current.length() > 0) {
+            result.add(current.toString());
+        }
+        
+        return result;
+    }
+    
+    private static int findColonOutsideQuotes(String str) {
+        boolean inQuotes = false;
+        boolean escaped = false;
+        
+        for (int i = 0; i < str.length(); i++) {
+            char c = str.charAt(i);
+            
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            
+            if (c == '\\') {
+                escaped = true;
+                continue;
+            }
+            
+            if (c == '"') {
+                inQuotes = !inQuotes;
+                continue;
+            }
+            
+            if (c == ':' && !inQuotes) {
+                return i;
+            }
+        }
+        
+        return -1;
+    }
+    
+    private static String removeQuotes(String str) {
+        str = str.trim();
+        if (str.startsWith("\"") && str.endsWith("\"")) {
+            return str.substring(1, str.length() - 1);
+        }
+        return str;
+    }
+    
+    private static Object parseJsonValue(String valueStr) {
+        valueStr = valueStr.trim();
+        
+        if (valueStr.startsWith("\"") && valueStr.endsWith("\"")) {
+            // String value - remove quotes and unescape
+            return unescape(valueStr.substring(1, valueStr.length() - 1));
+        } else if ("null".equals(valueStr)) {
+            return null;
+        } else if ("true".equals(valueStr)) {
+            return true;
+        } else if ("false".equals(valueStr)) {
+            return false;
+        } else {
+            // Try to parse as number
+            try {
+                if (valueStr.contains(".")) {
+                    return Double.parseDouble(valueStr);
+                } else {
+                    return Long.parseLong(valueStr);
+                }
+            } catch (NumberFormatException e) {
+                // Return as string if not a number
+                return valueStr;
+            }
+        }
     }
     
     private static String escape(String s) {
