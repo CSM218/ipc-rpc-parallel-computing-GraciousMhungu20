@@ -159,67 +159,125 @@ public class Message {
         return sb.toString();
     }
     
-    // Helper method for JSON deserialization
+    // Helper method for JSON deserialization - improved
     private static Map<String, Object> jsonToMap(String json) {
-        if (json == null || json.isEmpty()) return new HashMap<>();
+        if (json == null || json.trim().isEmpty()) return new HashMap<>();
         
         Map<String, Object> map = new HashMap<>();
         
-        // Simple JSON parser
         try {
             json = json.trim();
             if (!json.startsWith("{") || !json.endsWith("}")) {
                 return map;
             }
             
-            json = json.substring(1, json.length() - 1);
+            // Remove outer braces
+            String content = json.substring(1, json.length() - 1);
             
-            // Split by comma, but be careful with quoted strings
-            List<String> pairs = new ArrayList<>();
-            StringBuilder current = new StringBuilder();
+            // Manual JSON parsing
+            StringBuilder key = null;
+            StringBuilder value = null;
             boolean inQuote = false;
-            for (char c : json.toCharArray()) {
-                if (c == '"' && (current.length() == 0 || current.charAt(current.length() - 1) != '\\')) {
-                    inQuote = !inQuote;
-                }
-                if (c == ',' && !inQuote) {
-                    pairs.add(current.toString());
-                    current = new StringBuilder();
-                } else {
-                    current.append(c);
-                }
-            }
-            if (current.length() > 0) {
-                pairs.add(current.toString());
-            }
+            boolean inValue = false;
+            boolean isString = false;
             
-            for (String pair : pairs) {
-                int colonIdx = pair.indexOf(':');
-                if (colonIdx > 0) {
-                    String key = pair.substring(0, colonIdx).trim().replaceAll("^\"|\"$", "");
-                    String valueStr = pair.substring(colonIdx + 1).trim();
-                    
-                    Object value;
-                    if (valueStr.startsWith("\"") && valueStr.endsWith("\"")) {
-                        value = unescape(valueStr.substring(1, valueStr.length() - 1));
-                    } else if (valueStr.equals("null")) {
-                        value = null;
-                    } else {
-                        try {
-                            if (valueStr.contains(".")) {
-                                value = Double.parseDouble(valueStr);
-                            } else {
-                                value = Long.parseLong(valueStr);
-                            }
-                        } catch (NumberFormatException e) {
-                            value = valueStr;
+            int i = 0;
+            while (i < content.length()) {
+                char c = content.charAt(i);
+                char nextChar = i + 1 < content.length() ? content.charAt(i + 1) : '\0';
+                
+                // Handle strings
+                if (c == '"') {
+                    if (i > 0 && content.charAt(i - 1) != '\\') {
+                        inQuote = !inQuote;
+                        if (!inQuote && !inValue) {
+                            key = new StringBuilder();
+                        } else if (!inQuote && inValue) {
+                            isString = true;
                         }
                     }
-                    map.put(key, value);
+                    if (inQuote) {
+                        if (key != null && key.length() > 0) {
+                            key.append(c);
+                        }
+                        if (value != null) {
+                            value.append(c);
+                        }
+                    }
+                    i++;
+                    continue;
                 }
+                
+                if (inQuote) {
+                    if (key != null && key.length() > 0) {
+                        key.append(c);
+                    } else if (value != null) {
+                        value.append(c);
+                    }
+                    i++;
+                    continue;
+                }
+                
+                // Handle colon
+                if (c == ':' && !inValue && key != null) {
+                    inValue = true;
+                    value = new StringBuilder();
+                    i++;
+                    // Skip whitespace
+                    while (i < content.length() && Character.isWhitespace(content.charAt(i))) {
+                        i++;
+                    }
+                    continue;
+                }
+                
+                // Handle value
+                if (inValue && c != ',') {
+                    value.append(c);
+                    i++;
+                    continue;
+                }
+                
+                // Handle comma
+                if (c == ',' || i == content.length() - 1) {
+                    if (key != null && value != null) {
+                        String keyStr = key.toString().trim().replaceAll("^\"|\"$", "");
+                        String valueStr = value.toString().trim();
+                        
+                        Object parsedValue;
+                        if (valueStr.startsWith("\"") && valueStr.endsWith("\"")) {
+                            parsedValue = unescape(valueStr.substring(1, valueStr.length() - 1));
+                        } else if ("null".equals(valueStr)) {
+                            parsedValue = null;
+                        } else if ("true".equals(valueStr)) {
+                            parsedValue = true;
+                        } else if ("false".equals(valueStr)) {
+                            parsedValue = false;
+                        } else {
+                            try {
+                                if (valueStr.contains(".")) {
+                                    parsedValue = Double.parseDouble(valueStr);
+                                } else {
+                                    parsedValue = Long.parseLong(valueStr);
+                                }
+                            } catch (NumberFormatException e) {
+                                parsedValue = valueStr;
+                            }
+                        }
+                        
+                        map.put(keyStr, parsedValue);
+                    }
+                    
+                    key = null;
+                    value = null;
+                    inValue = false;
+                    isString = false;
+                }
+                
+                i++;
             }
         } catch (Exception e) {
-            System.err.println("Error parsing JSON: " + e.getMessage());
+            System.err.println("[Message] Error parsing JSON: " + e.getMessage());
+            e.printStackTrace();
         }
         
         return map;
