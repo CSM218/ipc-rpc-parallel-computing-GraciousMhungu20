@@ -1,32 +1,53 @@
 package pdc;
 
-import java.net.Socket;
+import java.io.*;
+import java.net.*;
 
-/**
- * A Worker is a node in the cluster capable of high-concurrency computation.
- * 
- * CHALLENGE: Efficiency is key. The worker must minimize latency by
- * managing its own internal thread pool and memory buffers.
- */
 public class Worker {
 
-    /**
-     * Connects to the Master and initiates the registration handshake.
-     * The handshake must exchange 'Identity' and 'Capability' sets.
-     */
-    public void joinCluster(String masterHost, int port) {
-        // TODO: Implement the cluster join protocol
+    private static final String HOST = "localhost";
+    private static final int PORT = 5000;
+
+    private Socket socket;
+    private BufferedReader in;
+    private PrintWriter out;
+
+    public void connectAndWork() {
+        try {
+            socket = new Socket(HOST, PORT);
+            in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            out = new PrintWriter(socket.getOutputStream(), true);
+
+            System.out.println("Connected to master at " + HOST + ":" + PORT);
+
+            // send greeting
+            out.println("Greetings sent.");
+
+            String line;
+            while ((line = in.readLine()) != null) {
+                System.out.println("Received task: " + line);
+
+                if (line.startsWith("TASK|ROW|")) {
+                    int row = Integer.parseInt(line.split("\\|")[2]);
+                    String result = computeRow(row);
+                    out.println(result);
+                    System.out.println("Result sent: " + result);
+                }
+            }
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
-    /**
-     * Executes a received task block.
-     * 
-     * Students must ensure:
-     * 1. The operation is atomic from the perspective of the Master.
-     * 2. Overlapping tasks do not cause race conditions.
-     * 3. 'End-to-End' logs are precise for performance instrumentation.
-     */
-    public void execute() {
-        // TODO: Implement internal task scheduling
+    private String computeRow(int row) {
+        // dummy computation: for example, just row*2 and row*3
+        int val1 = row * 2;
+        int val2 = row * 3;
+        return row + "|" + val1 + "," + val2;
+    }
+
+    public static void main(String[] args) {
+        new Worker().connectAndWork();
     }
 }

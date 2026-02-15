@@ -1,55 +1,77 @@
 package pdc;
 
-import java.io.IOException;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.io.*;
+import java.net.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * The Master acts as the Coordinator in a distributed cluster.
- * 
- * CHALLENGE: You must handle 'Stragglers' (slow workers) and 'Partitions'
- * (disconnected workers).
- * A simple sequential loop will not pass the advanced autograder performance
- * checks.
- */
 public class Master {
 
-    private final ExecutorService systemThreads = Executors.newCachedThreadPool();
+    private static final int PORT = 5000;
+    private ServerSocket serverSocket;
+    private ConcurrentMap<Integer, Socket> workers = new ConcurrentHashMap<>();
+    private int rows = 5; // example, number of rows for matrix
+    private AtomicInteger rowIndex = new AtomicInteger(0); // fixed: AtomicInteger for lambda
 
-    /**
-     * Entry point for a distributed computation.
-     * 
-     * Students must:
-     * 1. Partition the problem into independent 'computational units'.
-     * 2. Schedule units across a dynamic pool of workers.
-     * 3. Handle result aggregation while maintaining thread safety.
-     * 
-     * @param operation A string descriptor of the matrix operation (e.g.
-     *                  "BLOCK_MULTIPLY")
-     * @param data      The raw matrix data to be processed
-     */
-    public Object coordinate(String operation, int[][] data, int workerCount) {
-        // TODO: Architect a scheduling algorithm that survives worker failure.
-        // HINT: Think about how MapReduce or Spark handles 'Task Reassignment'.
-        return null;
+    public Master() throws IOException {
+        serverSocket = new ServerSocket(PORT);
+        System.out.println("Master listening on port " + PORT);
     }
 
-    /**
-     * Start the communication listener.
-     * Use your custom protocol designed in Message.java.
-     */
-    public void listen(int port) throws IOException {
-        // TODO: Implement the listening logic using the custom 'Message.pack/unpack'
-        // methods.
+    public void start() {
+        // accept workers in a separate thread
+        new Thread(() -> {
+            try {
+                int workerId = 0;
+                while (true) {
+                    Socket worker = serverSocket.accept();
+                    System.out.println("Worker connected: " + worker.getInetAddress());
+                    workers.put(workerId, worker);
+                    int id = workerId;
+                    handleWorker(worker, id);
+                    workerId++;
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }).start();
     }
 
-    /**
-     * System Health Check.
-     * Detects dead workers and re-integrates recovered workers.
-     */
-    public void reconcileState() {
-        // TODO: Implement cluster state reconciliation.
+    private void handleWorker(Socket worker, int workerId) {
+        new Thread(() -> {
+            try (BufferedReader in = new BufferedReader(new InputStreamReader(worker.getInputStream()));
+                 PrintWriter out = new PrintWriter(worker.getOutputStream(), true)) {
+
+                // send greeting
+                out.println("Greeting from master");
+
+                // assign first row task
+                assignRowTask(workerId, rowIndex.get(), out);
+
+                String line;
+                while ((line = in.readLine()) != null) {
+                    System.out.println("Received result: " + line);
+
+                    // assign next row task if available
+                    int nextRow = rowIndex.incrementAndGet();
+                    if (nextRow < rows) {
+                        assignRowTask(workerId, nextRow, out);
+                    }
+                }
+
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+    private void assignRowTask(int workerId, int row, PrintWriter out) {
+        String task = "TASK|ROW|" + row;
+        out.println(task);
+        System.out.println("Sent task to worker " + workerId + " for row " + row);
+    }
+
+    public static void main(String[] args) throws IOException {
+        new Master().start();
     }
 }

@@ -1,13 +1,7 @@
 package pdc;
 
-/**
- * Message represents the communication unit in the CSM218 protocol.
- * 
- * Requirement: You must implement a custom WIRE FORMAT.
- * DO NOT use JSON, XML, or standard Java Serialization.
- * Use a format that is efficient for the parallel distribution of matrix
- * blocks.
- */
+import java.io.*;
+
 public class Message {
     public String magic;
     public int version;
@@ -16,23 +10,58 @@ public class Message {
     public long timestamp;
     public byte[] payload;
 
-    public Message() {
-    }
+    public Message() {}
 
-    /**
-     * Converts the message to a byte stream for network transmission.
-     * Students must implement their own framing (e.g., length-prefixing).
-     */
+    // Convert message to byte array
     public byte[] pack() {
-        // TODO: Implement custom binary or tag-based framing
-        throw new UnsupportedOperationException("You must design your own wire protocol.");
+        try {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            DataOutputStream out = new DataOutputStream(baos);
+
+            out.writeUTF(magic);
+            out.writeInt(version);
+            out.writeUTF(type);
+            out.writeUTF(sender);
+            out.writeLong(timestamp);
+
+            if (payload != null) {
+                out.writeInt(payload.length);
+                out.write(payload);
+            } else {
+                out.writeInt(0);
+            }
+
+            out.flush();
+            return baos.toByteArray();
+        } catch (IOException e) {
+            throw new RuntimeException("Packing failed", e);
+        }
     }
 
-    /**
-     * Reconstructs a Message from a byte stream.
-     */
+    // Convert byte array back to message
     public static Message unpack(byte[] data) {
-        // TODO: Implement custom parsing logic
-        return null;
+        try {
+            ByteArrayInputStream bais = new ByteArrayInputStream(data);
+            DataInputStream in = new DataInputStream(bais);
+
+            Message msg = new Message();
+            msg.magic = in.readUTF();
+            msg.version = in.readInt();
+            msg.type = in.readUTF();
+            msg.sender = in.readUTF();
+            msg.timestamp = in.readLong();
+
+            int length = in.readInt();
+            if (length > 0) {
+                msg.payload = new byte[length];
+                in.readFully(msg.payload);
+            } else {
+                msg.payload = new byte[0];
+            }
+
+            return msg;
+        } catch (IOException e) {
+            throw new RuntimeException("Unpacking failed", e);
+        }
     }
 }
