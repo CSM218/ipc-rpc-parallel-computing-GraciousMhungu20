@@ -109,17 +109,52 @@ public class ReferenceWorker {
             String payload = msg.payloadStr;
             System.out.println("[WORKER " + workerId + "] Processing task: " + payload);
 
-            // Simple echo response for testing
+            // Parse task
+            Object result = null;
+            if (payload != null && payload.contains("row:")) {
+                // Process matrix row task
+                String[] parts = payload.split(":");
+                if (parts.length >= 2) {
+                    int row = Integer.parseInt(parts[1]);
+                    if (parts.length >= 3) {
+                        // Parse row values and compute
+                        String[] values = parts[2].split(",");
+                        int[] rowVals = new int[values.length];
+                        for (int i = 0; i < values.length; i++) {
+                            rowVals[i] = Integer.parseInt(values[i].trim());
+                        }
+                        // Simple computation: multiply each by (index+1)
+                        int[] processed = new int[rowVals.length];
+                        for (int i = 0; i < rowVals.length; i++) {
+                            processed[i] = rowVals[i] * (i + 1);
+                        }
+                        // Format result
+                        StringBuilder sb = new StringBuilder();
+                        for (int i = 0; i < processed.length; i++) {
+                            if (i > 0) sb.append(",");
+                            sb.append(processed[i]);
+                        }
+                        result = sb.toString();
+                    }
+                }
+            }
+            
+            if (result == null) {
+                result = payload + ";processed";
+            }
+
+            // Send response
             Message responseMsg = new Message();
             responseMsg.messageType = "TASK_COMPLETE";
             responseMsg.studentId = studentId;
-            responseMsg.payloadStr = payload + ";processed";
+            responseMsg.payloadStr = result.toString();
 
             out.println(responseMsg.toJson());
             System.out.println("[WORKER " + workerId + "] Response sent");
 
         } catch (Exception e) {
             System.err.println("[WORKER " + workerId + "] Error handling RPC: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
